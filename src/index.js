@@ -22,7 +22,7 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "'sha256-9656d/SrvABpBJIwLQtU8r3YJseYTNXHEMF4Uo6Eo8w='"],
       imgSrc: ["'self'", "data:", "https:"],
       baseUri: ["'self'"],
       fontSrc: ["'self'", "https:", "data:"],
@@ -172,4 +172,4 @@ async function startServer() {
 
 startServer();
 
-module.exports = app; 
+module.exports = app;

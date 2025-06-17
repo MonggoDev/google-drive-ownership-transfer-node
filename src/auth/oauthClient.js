@@ -82,7 +82,8 @@ async function exchangeCodeForTokens(code, codeVerifier = null) {
     );
 
     const tokenRequest = {
-      code: code
+      code: code,
+      redirect_uri: config.google.redirectUri // Explicitly add redirect_uri to the request
     };
 
     // Add code_verifier only if provided (for PKCE)
@@ -266,4 +267,4 @@ module.exports = {
   generateCodeChallenge,
   revokeTokens,
   validateAccessToken
-}; 
+};

@@ -9,6 +9,9 @@ const {
 const User = require('../database/models/User');
 const logger = require('../utils/logger');
 
+// Temporary in-memory store for code verifiers (Not for production)
+const tempCodeVerifierStore = {};
+
 class AuthController {
   // Initiate OAuth2 flow
   static async initiateAuth(req, res) {
@@ -27,6 +30,11 @@ class AuthController {
       
       console.log('Generating code challenge...');
       const codeChallenge = generateCodeChallenge(codeVerifier);
+
+      // Store the code verifier temporarily
+      tempCodeVerifierStore[state] = codeVerifier;
+      console.log(`Stored code verifier for state: ${state}`);
+      console.log('Current tempCodeVerifierStore keys after store:', Object.keys(tempCodeVerifierStore));
       
       console.log('Generating auth URL...');
       const authUrl = generateAuthUrl(state, codeChallenge);
@@ -74,10 +82,32 @@ class AuthController {
         });
       }
 
+      console.log('Current tempCodeVerifierStore keys before lookup:', Object.keys(tempCodeVerifierStore));
+      // Retrieve the code verifier using the state
+      const codeVerifier = tempCodeVerifierStore[state];
+      console.log(`Retrieved code verifier for state ${state}: ${codeVerifier ? 'found' : 'not found'}`);
+
+      if (!codeVerifier) {
+          console.error('Code verifier not found for state:', state);
+          // Clean up the temporary storage even if not found, to prevent stale entries
+          delete tempCodeVerifierStore[state];
+          console.log(`Deleted code verifier for state: ${state} (not found)`);
+          console.log('Current tempCodeVerifierStore keys after delete:', Object.keys(tempCodeVerifierStore));
+          return res.status(400).json({
+              success: false,
+              error: 'Authentication failed',
+              details: 'Code verifier not found or expired.'
+          });
+      }
+
       console.log('Exchanging code for tokens...');
-      // For now, we'll skip PKCE verification since we don't have session storage
-      // In production, you should implement proper OAuth session management
-      const tokens = await exchangeCodeForTokens(code, null);
+      // Pass the retrieved code verifier to the exchange function
+      const tokens = await exchangeCodeForTokens(code, codeVerifier);
+
+      // Clean up the temporary storage after successful exchange
+      delete tempCodeVerifierStore[state];
+      console.log(`Deleted code verifier for state: ${state} (used)`);
+      console.log('Current tempCodeVerifierStore keys after delete:', Object.keys(tempCodeVerifierStore));
 
       console.log('Getting user info...');
       const userInfo = await getUserInfo(tokens.access_token);
@@ -115,6 +145,8 @@ class AuthController {
 
       logger.logAuth(user.id, 'auth_successful', { email: user.email });
 
+      // Respond with success and user info (excluding tokens for security)
+      // For this simple UI, we'll return user and access token for local storage
       res.json({
         success: true,
         user: {
@@ -123,6 +155,7 @@ class AuthController {
           displayName: user.displayName,
           avatarUrl: user.avatarUrl
         },
+        accessToken: tokens.access_token, // Return access token for frontend to use
         message: 'Authentication successful!'
       });
     } catch (error) {
@@ -438,10 +471,27 @@ class AuthController {
 
       // Check if user has valid access token
       if (!user.accessToken) {
-        return res.status(401).json({
-          success: false,
-          error: 'No valid access token. Please re-authenticate.'
-        });
+        // Attempt to refresh token if refresh token is available
+        if (user.refreshToken) {
+          try {
+            const GoogleDriveService = require('../services/googleDriveService');
+            const newTokens = await GoogleDriveService.refreshAccessToken(user.refreshToken);
+            await User.updateTokens(user.id, newTokens.access_token, newTokens.refresh_token || user.refreshToken, newTokens.expiry_date ? new Date(newTokens.expiry_date) : null);
+            user.accessToken = newTokens.access_token; // Update user object with new token
+            logger.logAuth(user.id, 'access_token_refreshed_for_files');
+          } catch (refreshError) {
+            logger.logError(refreshError, { action: 'refresh_token_for_files', userId: user.id });
+            return res.status(401).json({
+              success: false,
+              error: 'Failed to refresh access token. Please re-authenticate.'
+            });
+          }
+        } else {
+           return res.status(401).json({
+            success: false,
+            error: 'No valid access or refresh token. Please re-authenticate.'
+          });
+        }
       }
 
       // Get files from Google Drive
@@ -473,4 +523,4 @@ class AuthController {
   }
 }
 
-module.exports = AuthController; 
+module.exports = AuthController;
