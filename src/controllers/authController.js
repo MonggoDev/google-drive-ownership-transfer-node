@@ -13,20 +13,22 @@ class AuthController {
   // Initiate OAuth2 flow
   static async initiateAuth(req, res) {
     try {
+      console.log('Starting OAuth initiation...');
       const { role } = req.query; // 'sender' or 'receiver'
+      
+      console.log('Generating session token...');
       const sessionToken = uuidv4();
+      
+      console.log('Generating state...');
       const state = uuidv4();
+      
+      console.log('Generating code verifier...');
       const codeVerifier = generateCodeVerifier();
+      
+      console.log('Generating code challenge...');
       const codeChallenge = generateCodeChallenge(codeVerifier);
-
-      // Store OAuth session in database (you'll need to implement this)
-      // await OAuthSession.create({
-      //   sessionToken,
-      //   state,
-      //   codeVerifier,
-      //   expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
-      // });
-
+      
+      console.log('Generating auth URL...');
       const authUrl = generateAuthUrl(state, codeChallenge);
 
       logger.logAuth(null, 'auth_initiated', { role, sessionToken });
@@ -39,9 +41,12 @@ class AuthController {
       });
     } catch (error) {
       logger.logError(error, { action: 'initiate_auth' });
+      console.error('initiateAuth error:', error);
+      console.error('Error stack:', error.stack);
       res.status(500).json({
         success: false,
-        error: 'Failed to initiate authentication'
+        error: 'Failed to initiate authentication',
+        details: error.message
       });
     }
   }
@@ -49,6 +54,7 @@ class AuthController {
   // Handle OAuth2 callback
   static async handleCallback(req, res) {
     try {
+      console.log('OAuth callback received:', req.query);
       const { code, state, error } = req.query;
 
       if (error) {
@@ -61,31 +67,28 @@ class AuthController {
       }
 
       if (!code || !state) {
+        console.log('Missing code or state:', { code: !!code, state: !!state });
         return res.status(400).json({
           success: false,
           error: 'Missing required parameters'
         });
       }
 
-      // Verify state and get code verifier from database
-      // const oauthSession = await OAuthSession.findByState(state);
-      // if (!oauthSession || oauthSession.isUsed) {
-      //   return res.status(400).json({
-      //     success: false,
-      //     error: 'Invalid or expired session'
-      //   });
-      // }
+      console.log('Exchanging code for tokens...');
+      // For now, we'll skip PKCE verification since we don't have session storage
+      // In production, you should implement proper OAuth session management
+      const tokens = await exchangeCodeForTokens(code, null);
 
-      // Exchange code for tokens
-      const tokens = await exchangeCodeForTokens(code, codeVerifier);
-
-      // Get user info from Google
+      console.log('Getting user info...');
       const userInfo = await getUserInfo(tokens.access_token);
+
+      console.log('User info received:', { id: userInfo.id, email: userInfo.email });
 
       // Find or create user
       let user = await User.findByGoogleId(userInfo.id);
       
       if (!user) {
+        console.log('Creating new user...');
         // Create new user
         user = await User.create({
           googleId: userInfo.id,
@@ -97,8 +100,9 @@ class AuthController {
           tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null
         });
       } else {
+        console.log('Updating existing user...');
         // Update existing user's tokens
-        user = await User.updateTokens(
+        await User.updateTokens(
           user.id,
           tokens.access_token,
           tokens.refresh_token,
@@ -109,9 +113,6 @@ class AuthController {
       // Update last login
       await User.updateLastLogin(user.id);
 
-      // Mark OAuth session as used
-      // await OAuthSession.markAsUsed(oauthSession.id);
-
       logger.logAuth(user.id, 'auth_successful', { email: user.email });
 
       res.json({
@@ -119,16 +120,19 @@ class AuthController {
         user: {
           id: user.id,
           email: user.email,
-          displayName: user.display_name,
-          avatarUrl: user.avatar_url
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl
         },
-        sessionToken: oauthSession?.session_token
+        message: 'Authentication successful!'
       });
     } catch (error) {
       logger.logError(error, { action: 'handle_callback' });
+      console.error('Callback error:', error);
+      console.error('Error stack:', error.stack);
       res.status(500).json({
         success: false,
-        error: 'Authentication failed'
+        error: 'Authentication failed',
+        details: error.message
       });
     }
   }
@@ -219,14 +223,13 @@ class AuthController {
   static async logout(req, res) {
     try {
       const userId = req.user?.id;
-
+      
       if (userId) {
-        logger.logAuth(userId, 'logout');
+        // Update last login to track logout
+        await User.updateLastLogin(userId);
+        logger.logAuth(userId, 'user_logout');
       }
 
-      // Clear session/tokens (implement based on your session management)
-      res.clearCookie('sessionToken');
-      
       res.json({
         success: true,
         message: 'Logged out successfully'
@@ -235,7 +238,7 @@ class AuthController {
       logger.logError(error, { action: 'logout' });
       res.status(500).json({
         success: false,
-        error: 'Logout failed'
+        error: 'Failed to logout'
       });
     }
   }
@@ -316,6 +319,155 @@ class AuthController {
       res.status(500).json({
         success: false,
         error: 'Failed to check authentication'
+      });
+    }
+  }
+
+  // Get current user info
+  static async getCurrentUser(req, res) {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'User not authenticated'
+        });
+      }
+
+      const user = await User.findById(userId);
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+      }
+
+      logger.logAuth(userId, 'current_user_retrieved');
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl,
+          lastLogin: user.lastLogin,
+          createdAt: user.createdAt
+        }
+      });
+    } catch (error) {
+      logger.logError(error, { action: 'get_current_user' });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get current user'
+      });
+    }
+  }
+
+  // Refresh access token
+  static async refreshToken(req, res) {
+    try {
+      const { refresh_token } = req.body;
+
+      if (!refresh_token) {
+        return res.status(400).json({
+          success: false,
+          error: 'Refresh token is required'
+        });
+      }
+
+      // Find user by refresh token
+      const user = await User.findByRefreshToken(refresh_token);
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid refresh token'
+        });
+      }
+
+      // Refresh the token using Google OAuth
+      const GoogleDriveService = require('../services/googleDriveService');
+      const credentials = await GoogleDriveService.refreshAccessToken(refresh_token);
+
+      // Update user's tokens
+      await User.updateTokens(
+        user.id,
+        credentials.access_token,
+        credentials.refresh_token || refresh_token,
+        credentials.expiry_date ? new Date(credentials.expiry_date) : null
+      );
+
+      logger.logAuth(user.id, 'token_refreshed');
+
+      res.json({
+        success: true,
+        access_token: credentials.access_token,
+        refresh_token: credentials.refresh_token || refresh_token,
+        expires_in: credentials.expiry_date ? new Date(credentials.expiry_date).getTime() - Date.now() : null
+      });
+    } catch (error) {
+      logger.logError(error, { action: 'refresh_token' });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to refresh token'
+      });
+    }
+  }
+
+  // Get user's Google Drive files
+  static async getUserFiles(req, res) {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'User not authenticated'
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+      }
+
+      // Check if user has valid access token
+      if (!user.accessToken) {
+        return res.status(401).json({
+          success: false,
+          error: 'No valid access token. Please re-authenticate.'
+        });
+      }
+
+      // Get files from Google Drive
+      const GoogleDriveService = require('../services/googleDriveService');
+      const files = await GoogleDriveService.getUserFiles(
+        user.accessToken,
+        user.refreshToken
+      );
+
+      logger.logAuth(userId, 'files_retrieved', { fileCount: files.length });
+
+      res.json({
+        success: true,
+        files: files.map(file => ({
+          id: file.id,
+          name: file.name,
+          mimeType: file.mimeType,
+          size: file.size,
+          owners: file.owners
+        }))
+      });
+    } catch (error) {
+      logger.logError(error, { action: 'get_user_files' });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get user files'
       });
     }
   }

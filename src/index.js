@@ -7,11 +7,11 @@ const path = require('path');
 
 const config = require('./config/environment');
 const logger = require('./utils/logger');
+const database = require('./database/connection');
 
-// Import routes (we'll create these next)
-// const authRoutes = require('./routes/auth');
-// const transferRoutes = require('./routes/transfer');
-// const fileRoutes = require('./routes/files');
+// Import routes
+const authRoutes = require('./routes/auth');
+const transferRoutes = require('./routes/transfer');
 
 // Create Express app
 const app = express();
@@ -24,13 +24,19 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
+      baseUri: ["'self'"],
+      fontSrc: ["'self'", "https:", "data:"],
+      formAction: ["'self'"],
+      frameSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: []
+    }
+  }
 }));
 
 // CORS configuration
 app.use(cors({
-  origin: config.security.corsOrigin,
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'file://'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -38,16 +44,11 @@ app.use(cors({
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: config.security.rateLimitWindow * 60 * 1000, // Convert minutes to milliseconds
-  max: config.security.rateLimitMaxRequests,
-  message: {
-    success: false,
-    error: 'Too many requests, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
 });
-app.use(limiter);
+app.use('/api/', limiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -62,29 +63,27 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
-    success: true,
     status: 'OK',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: config.app.env
+    environment: config.environment,
+    version: require('../package.json').version
   });
 });
 
+// Root endpoint - serve the web interface
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // API routes
-app.use('/api/auth', (req, res) => {
-  res.json({ message: 'Auth routes will be implemented' });
-});
-
-app.use('/api/transfer', (req, res) => {
-  res.json({ message: 'Transfer routes will be implemented' });
-});
-
-app.use('/api/files', (req, res) => {
-  res.json({ message: 'File routes will be implemented' });
-});
+app.use('/api/auth', authRoutes);
+app.use('/api/transfer', transferRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -143,21 +142,34 @@ process.on('uncaughtException', (error) => {
 });
 
 // Start server
-const PORT = config.app.port;
-app.listen(PORT, () => {
-  logger.info(`Server started successfully`, {
-    port: PORT,
-    environment: config.app.env,
-    nodeVersion: process.version
-  });
-  
-  console.log(`
-🚀 Google Drive Ownership Transfer App
-📡 Server running on port ${PORT}
-🌍 Environment: ${config.app.env}
-📊 Log level: ${config.app.logLevel}
-🔗 Health check: http://localhost:${PORT}/health
-  `);
-});
+const PORT = config.port || 3000;
+
+async function startServer() {
+  try {
+    // Test database connection
+    await database.testConnection();
+    logger.info('Connected to SQLite database');
+
+    app.listen(PORT, () => {
+      console.log('🚀 Google Drive Ownership Transfer App');
+      console.log(`📡 Server running on port ${PORT}`);
+      console.log(`🌍 Environment: ${config.environment}`);
+      console.log(`📊 Log level: ${config.logLevel}`);
+      console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+      console.log(`🌐 Web interface: http://localhost:${PORT}`);
+      
+      logger.info('Server started successfully', {
+        environment: config.environment,
+        nodeVersion: process.version,
+        port: PORT
+      });
+    });
+  } catch (error) {
+    logger.error('Failed to start server', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 module.exports = app; 
