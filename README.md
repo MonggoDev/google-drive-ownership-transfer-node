@@ -38,7 +38,7 @@ This application provides a clean, secure, and focused solution for transferring
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/google-drive-ownership-transfer-node.git
+git clone https://github.com/MonggoDev/google-drive-ownership-transfer-node.git
 cd google-drive-ownership-transfer-node
 ```
 
@@ -86,8 +86,8 @@ cp env.example .env
 2. Edit `.env` with your configuration:
 ```env
 # Google OAuth Configuration
-GOOGLE_CLIENT_ID=your_oauth_client_id
-GOOGLE_CLIENT_SECRET=your_oauth_client_secret
+GOOGLE_CLIENT_ID=1023655621706-tu2jlp6mccao293vt0g4ousnala1dpo8.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=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
 GOOGLE_REDIRECT_URI=http://localhost:3000/auth/callback
 
 # Database Configuration
@@ -102,8 +102,8 @@ DATABASE_PASSWORD=password
 NODE_ENV=development
 LOG_LEVEL=info
 PORT=3000
-SESSION_SECRET=your_session_secret_here
-JWT_SECRET=your_jwt_secret_here
+SESSION_SECRET=your_session_secret_here_change_this_in_production
+JWT_SECRET=your_jwt_secret_here_change_this_in_production
 
 # Security Settings
 CORS_ORIGIN=http://localhost:3000
@@ -247,9 +247,9 @@ This application operates using the Google Drive API and requires appropriate OA
 
 ## 🆘 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/google-drive-ownership-transfer-node/issues)
-- **Documentation**: [Wiki](https://github.com/yourusername/google-drive-ownership-transfer-node/wiki)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/google-drive-ownership-transfer-node/discussions)
+- **Issues**: [GitHub Issues](https://github.com/MonggoDev/google-drive-ownership-transfer-node/issues)
+- **Documentation**: [Wiki](https://github.com/MonggoDev/google-drive-ownership-transfer-node/wiki)
+- **Discussions**: [GitHub Discussions](https://github.com/MonggoDev/google-drive-ownership-transfer-node/discussions)
 
 ## 📈 Roadmap
 
